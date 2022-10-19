@@ -87,4 +87,9 @@ impl RouterService {
     pub fn disconnect(&mut self) {
         self.conduit = None;
     }
+
+    pub async fn connect(&mut self) -> Result<()> {
+        self.conduit = Some(self.mk_conduit().await?);
+        Ok(())
+    }
 }

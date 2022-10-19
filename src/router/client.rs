@@ -90,6 +90,10 @@ impl RouterClient {
         ));
         info!(logger, "starting");
 
+        if let Err(err) = self.router.connect().await {
+            warn!(logger, "initial router connection failed {:?}", err);
+        };
+
         let mut store_gc_timer = time::interval(STORE_GC_INTERVAL);
         store_gc_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
