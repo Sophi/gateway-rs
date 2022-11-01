@@ -905,7 +905,7 @@ dependencies = [
 [[package]]
 name = "helium-proto"
 version = "0.1.0"
-source = "git+https://github.com/helium/proto?branch=macpie/config_service_grpc#29108e8677be60aca343a55f4772b48f48e61448"
+source = "git+https://github.com/helium/proto?branch=master#bbb877219e1dacf04c5ff5e010b8f43171b594c3"
 dependencies = [
  "bytes",
  "prost",
