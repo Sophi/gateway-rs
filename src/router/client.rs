@@ -67,7 +67,7 @@ impl RouterClient {
         keypair: Arc<Keypair>,
         settings: CacheSettings,
     ) -> Result<Self> {
-        let router = RouterService::new(uri)?;
+        let router = RouterService::new(uri, keypair.clone())?;
         let store = RouterStore::new(&settings);
         Ok(Self {
             router,

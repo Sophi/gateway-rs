@@ -1,10 +1,18 @@
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use crate::{
     service::{CONNECT_TIMEOUT, RPC_TIMEOUT},
-    Result,
+    Error, Keypair, MsgSign, Result,
 };
 
 use helium_proto::services::{
-    router::{PacketRouterClient, PacketRouterPacketDownV1, PacketRouterPacketUpV1},
+    router::{
+        envelope_down_v1, envelope_up_v1, EnvelopeDownV1, EnvelopeUpV1, PacketRouterClient,
+        PacketRouterPacketDownV1, PacketRouterPacketUpV1, PacketRouterRegisterV1,
+    },
     Channel, Endpoint,
 };
 
@@ -14,20 +22,21 @@ use tokio_stream::wrappers::ReceiverStream;
 
 type PacketClient = PacketRouterClient<Channel>;
 
-type PacketSender = mpsc::Sender<PacketRouterPacketUpV1>;
-type PacketReceiver = tonic::Streaming<PacketRouterPacketDownV1>;
+type PacketSender = mpsc::Sender<EnvelopeUpV1>;
+type PacketReceiver = tonic::Streaming<EnvelopeDownV1>;
 
 #[derive(Debug)]
 pub struct RouterService {
     pub uri: Uri,
     packet_router_client: PacketClient,
     conduit: Option<(PacketSender, PacketReceiver)>,
+    keypair: Arc<Keypair>,
 }
 
 pub const CONDUIT_CAPACITY: usize = 50;
 
 impl RouterService {
-    pub fn new(uri: Uri) -> Result<Self> {
+    pub fn new(uri: Uri, keypair: Arc<Keypair>) -> Result<Self> {
         let packet_channel = Endpoint::from(uri.clone())
             .timeout(RPC_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
@@ -36,6 +45,7 @@ impl RouterService {
             uri,
             packet_router_client: PacketClient::new(packet_channel),
             conduit: None,
+            keypair,
         })
     }
 
@@ -50,6 +60,9 @@ impl RouterService {
         }
 
         let (tx, _) = self.conduit.as_ref().unwrap();
+        let msg = EnvelopeUpV1 {
+            data: Some(envelope_up_v1::Data::Packet(msg)),
+        };
         Ok(tx.send(msg).await?)
     }
 
@@ -72,7 +85,10 @@ impl RouterService {
         let (_, rx) = self.conduit.as_mut().unwrap();
 
         match rx.message().await {
-            Ok(Some(msg)) => Ok(Some(msg)),
+            Ok(Some(msg)) => match msg.data {
+                Some(envelope_down_v1::Data::Packet(packet)) => Ok(Some(packet)),
+                None => Ok(None),
+            },
             Ok(None) => {
                 self.disconnect();
                 Ok(None)
@@ -90,6 +106,24 @@ impl RouterService {
 
     pub async fn connect(&mut self) -> Result<()> {
         self.conduit = Some(self.mk_conduit().await?);
+        self.register().await?;
         Ok(())
+    }
+
+    async fn register(&mut self) -> Result {
+        let (tx, _) = self.conduit.as_ref().unwrap();
+        let mut register_msg = PacketRouterRegisterV1 {
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(Error::from)?
+                .as_millis() as u64,
+            gateway: self.keypair.public_key().into(),
+            signature: vec![],
+        };
+        register_msg.signature = register_msg.sign(self.keypair.clone()).await?;
+        let msg = EnvelopeUpV1 {
+            data: Some(envelope_up_v1::Data::Register(register_msg)),
+        };
+        Ok(tx.send(msg).await?)
     }
 }
