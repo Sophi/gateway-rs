@@ -17,6 +17,7 @@ use tokio::{
 
 pub const STORE_GC_INTERVAL: Duration = Duration::from_secs(60);
 pub const STATE_CHANNEL_CONNECT_INTERVAL: Duration = Duration::from_secs(60);
+const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(1800); // 30 minutes
 
 #[derive(Debug)]
 pub enum Message {
@@ -97,6 +98,8 @@ impl RouterClient {
         let mut store_gc_timer = time::interval(STORE_GC_INTERVAL);
         store_gc_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        let mut connection_check = time::interval(CONNECTION_CHECK_INTERVAL);
+
         loop {
             tokio::select! {
                 _ = shutdown.clone() => {
@@ -126,6 +129,14 @@ impl RouterClient {
                         info!(logger, "discarded {} queued packets", removed);
                     }
                 },
+                _ = connection_check.tick() => {
+                    info!(logger, "reconnecting router client");
+                    self.router.disconnect();
+                    match self.router.connect().await {
+                        Ok(_) => info!(logger, "reconnected"),
+                        Err(err) => warn!(logger, "could not reconnect {err:?}")
+                    }
+                }
                 downlink_message = self.router.message() => match downlink_message {
                     Ok(Some(message)) => {
                         match Packet::try_from(message) {
