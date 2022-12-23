@@ -56,7 +56,7 @@ impl RouterService {
 
     pub async fn send(&mut self, msg: PacketRouterPacketUpV1) -> Result {
         if self.conduit.is_none() {
-            self.conduit = Some(self.mk_conduit().await?);
+            self.connect().await?;
         }
 
         let (tx, _) = self.conduit.as_ref().unwrap();
